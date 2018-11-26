@@ -15,9 +15,9 @@ import (
 type Entry struct {
 	Endpoint  string `json:"endpoint"`
 	Command   string `json:"command"`
-	Mandatory bool   `json:"mandatory"`
-	PublicKey string `json:"publickey"`
-	Username  string `json:"username"`
+	Mandatory bool   `json:"mandatory,omitempty"`
+	PublicKey string `json:"publickey,omitempty"`
+	Username  string `json:"username,omitempty"`
 }
 
 //Manifest represents a redshift manifest file
