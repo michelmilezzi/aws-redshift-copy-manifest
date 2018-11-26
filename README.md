@@ -1,6 +1,6 @@
 # AWS Redshift Utils
 
-This library is intended to provide basic interation between S3 and Redshift.
+This library is intended to provide a basic interaction between S3 and Redshift.
 
 You could generate [Redshift Manifest file](https://docs.aws.amazon.com/redshift/latest/dg/load-from-host-steps-create-manifest.html) with the files you want for a later copy operation:
 
