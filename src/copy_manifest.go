@@ -1,16 +1,15 @@
-package main
+package manifest
 
 import (
 	"fmt"
 
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/endpoints"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 )
 
-//ManifestEntry represents an entries of a redshift manifest file
-type ManifestEntry struct {
+//Entry represents an entries of a redshift manifest file
+type Entry struct {
 	Endpoint  string `json:"endpoint"`
 	Command   string `json:"command"`
 	Mandatory bool   `json:"mandatory"`
@@ -20,51 +19,32 @@ type ManifestEntry struct {
 
 //Manifest represents a redshift manifest file
 type Manifest struct {
-	Entries []ManifestEntry `json:"entries"`
+	Entries []Entry `json:"entries"`
 }
 
-//ManifestTmpl TODO
-type ManifestTmpl struct {
+//Template template for generating the manifest entries
+type Template struct {
 	Mandatory bool
 	PublicKey string
 	Username  string
 }
 
-//CommandGenerator TODO
+//CommandGenerator function used to populate the command attribute for an entry
 type CommandGenerator func(file *s3.Object) string
 
-func main() {
+func generateManifestFromS3WithBasicCredentials(region string, template Template, commandGenerator CommandGenerator, listObjectInput *s3.ListObjectsInput) (*Manifest, error) {
 
-	var commandGenerator CommandGenerator = func(file *s3.Object) string {
-		return fmt.Sprintf("cat %v", *file.Key)
-	}
-
-	awsConfig := &aws.Config{Region: aws.String(endpoints.UsEast1RegionID)}
-
+	awsConfig := &aws.Config{Region: aws.String(region)}
 	s, err := session.NewSession(awsConfig)
+
 	if err != nil {
-		fmt.Printf("Unable to stabilish a s3 session, %v", err)
+		return nil, fmt.Errorf("Unable to stabilish a s3 session, %v", err)
 	}
 
-	svc := s3.New(s)
-
-	listObjectINput := &s3.ListObjectsInput{
-		Bucket: aws.String("notas-xml.triermais.com.br"),
-		Prefix: aws.String("staging"),
-	}
-
-	template := ManifestTmpl{Mandatory: true}
-
-	generateManifestFromS3(template, commandGenerator, svc, listObjectINput)
-
+	return generateManifestFromS3(template, commandGenerator, s3.New(s), listObjectInput)
 }
 
-func generateManifestFromS3WithBasicCredentials(template ManifestTmpl, commandGenerator CommandGenerator, svc *s3.S3, listObjectInput *s3.ListObjectsInput) (*Manifest, error) {
-
-	return generateManifestFromS3(template, commandGenerator, svc, listObjectInput)
-}
-
-func generateManifestFromS3(template ManifestTmpl, commandGenerator CommandGenerator, svc *s3.S3, listObjectInput *s3.ListObjectsInput) (*Manifest, error) {
+func generateManifestFromS3(template Template, commandGenerator CommandGenerator, svc *s3.S3, listObjectInput *s3.ListObjectsInput) (*Manifest, error) {
 
 	resp, err := svc.ListObjects(listObjectInput)
 
@@ -72,10 +52,10 @@ func generateManifestFromS3(template ManifestTmpl, commandGenerator CommandGener
 		return nil, fmt.Errorf("Unable to list items in bucket %q, %v", listObjectInput.Bucket, err)
 	}
 
-	var entries []ManifestEntry
+	var entries []Entry
 
 	for _, item := range resp.Contents {
-		entry := ManifestEntry{
+		entry := Entry{
 			Endpoint:  *item.Key,
 			Command:   commandGenerator(item),
 			Mandatory: template.Mandatory,
@@ -83,7 +63,7 @@ func generateManifestFromS3(template ManifestTmpl, commandGenerator CommandGener
 			Username:  template.Username,
 		}
 		entries = append(entries, entry)
-		fmt.Printf("File: %v \n", entry.Endpoint)
+
 	}
 
 	return &Manifest{entries}, nil
