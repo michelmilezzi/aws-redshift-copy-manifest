@@ -1,7 +1,10 @@
 package manifest
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"net/http"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -70,4 +73,32 @@ func GenerateManifestFromS3(template Template, commandGenerator CommandGenerator
 
 	return &Manifest{entries}, nil
 
+}
+
+//GenerateAndWriteManifestFromS3 generate and write manifest using the provided s3 session
+func GenerateAndWriteManifestFromS3(template Template, commandGenerator CommandGenerator, svc *s3.S3, listObjectInput *s3.ListObjectsInput, manifestInput *s3.PutObjectInput) error {
+
+	manifest, err := GenerateManifestFromS3(template, commandGenerator, svc, listObjectInput)
+
+	if err != nil {
+		return err
+	}
+
+	manifestBytes, err := json.Marshal(manifest)
+
+	if err != nil {
+		return fmt.Errorf("An unexpected error occurred while marshaling the manifest, %v", err)
+	}
+
+	manifestInput.Body = bytes.NewReader(manifestBytes)
+	manifestInput.ContentLength = aws.Int64(int64(len(manifestBytes)))
+	manifestInput.ContentType = aws.String(http.DetectContentType(manifestBytes))
+
+	_, err = svc.PutObject(manifestInput)
+
+	if err != nil {
+		fmt.Printf("An unexpected error occurred while writing the manifest into S3: %v", err)
+	}
+
+	return nil
 }
