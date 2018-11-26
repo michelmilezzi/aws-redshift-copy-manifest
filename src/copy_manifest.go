@@ -32,7 +32,8 @@ type Template struct {
 //CommandGenerator function used to populate the command attribute for an entry
 type CommandGenerator func(file *s3.Object) string
 
-func generateManifestFromS3WithBasicCredentials(region string, template Template, commandGenerator CommandGenerator, listObjectInput *s3.ListObjectsInput) (*Manifest, error) {
+//GenerateManifestFromS3WithBasicCredentials generate manifest using the aws basic credentials chain (env, shared credentials file, etc.)
+func GenerateManifestFromS3WithBasicCredentials(region string, template Template, commandGenerator CommandGenerator, listObjectInput *s3.ListObjectsInput) (*Manifest, error) {
 
 	awsConfig := &aws.Config{Region: aws.String(region)}
 	s, err := session.NewSession(awsConfig)
@@ -41,10 +42,11 @@ func generateManifestFromS3WithBasicCredentials(region string, template Template
 		return nil, fmt.Errorf("Unable to stabilish a s3 session, %v", err)
 	}
 
-	return generateManifestFromS3(template, commandGenerator, s3.New(s), listObjectInput)
+	return GenerateManifestFromS3(template, commandGenerator, s3.New(s), listObjectInput)
 }
 
-func generateManifestFromS3(template Template, commandGenerator CommandGenerator, svc *s3.S3, listObjectInput *s3.ListObjectsInput) (*Manifest, error) {
+//GenerateManifestFromS3 generate manifest using the provided s3 session
+func GenerateManifestFromS3(template Template, commandGenerator CommandGenerator, svc *s3.S3, listObjectInput *s3.ListObjectsInput) (*Manifest, error) {
 
 	resp, err := svc.ListObjects(listObjectInput)
 
