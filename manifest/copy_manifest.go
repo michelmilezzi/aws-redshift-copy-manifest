@@ -7,7 +7,6 @@ import (
 	"net/http"
 
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 )
 
@@ -32,29 +31,28 @@ type Template struct {
 	Username  string
 }
 
+//Input struct with the necessary parameters to build the redshift manifest
+type Input struct {
+	Template            *Template
+	CommandGenerator    CommandGenerator
+	S3ObjectsInput      *s3.ListObjectsInput
+	S3Session           *s3.S3
+	ManifestDestination *s3.PutObjectInput
+}
+
 //CommandGenerator function used to populate the command attribute for an entry
 type CommandGenerator func(file *s3.Object) string
 
-//GenerateManifestFromS3WithBasicCredentials generate manifest using the aws basic credentials chain (env, shared credentials file, etc.)
-func GenerateManifestFromS3WithBasicCredentials(region string, template Template, commandGenerator CommandGenerator, listObjectInput *s3.ListObjectsInput) (*Manifest, error) {
-
-	awsConfig := &aws.Config{Region: aws.String(region)}
-	s, err := session.NewSession(awsConfig)
-
-	if err != nil {
-		return nil, fmt.Errorf("Unable to stabilish a s3 session, %v", err)
-	}
-
-	return GenerateManifestFromS3(template, commandGenerator, s3.New(s), listObjectInput)
-}
+//CopyExecutor function used to execute the generated copy command
+type CopyExecutor func(manifestPath *string) error
 
 //GenerateManifestFromS3 generate manifest using the provided s3 session
-func GenerateManifestFromS3(template Template, commandGenerator CommandGenerator, svc *s3.S3, listObjectInput *s3.ListObjectsInput) (*Manifest, error) {
+func GenerateManifestFromS3(input *Input) (*Manifest, error) {
 
-	resp, err := svc.ListObjects(listObjectInput)
+	resp, err := input.S3Session.ListObjects(input.S3ObjectsInput)
 
 	if err != nil {
-		return nil, fmt.Errorf("Unable to list items in bucket %q, %v", listObjectInput.Bucket, err)
+		return nil, fmt.Errorf("Unable to list items in bucket %q, %v", input.S3ObjectsInput.Bucket, err)
 	}
 
 	var entries []Entry
@@ -62,10 +60,10 @@ func GenerateManifestFromS3(template Template, commandGenerator CommandGenerator
 	for _, item := range resp.Contents {
 		entry := Entry{
 			Endpoint:  *item.Key,
-			Command:   commandGenerator(item),
-			Mandatory: template.Mandatory,
-			PublicKey: template.PublicKey,
-			Username:  template.Username,
+			Command:   input.CommandGenerator(item),
+			Mandatory: input.Template.Mandatory,
+			PublicKey: input.Template.PublicKey,
+			Username:  input.Template.Username,
 		}
 		entries = append(entries, entry)
 
@@ -76,28 +74,61 @@ func GenerateManifestFromS3(template Template, commandGenerator CommandGenerator
 }
 
 //GenerateAndWriteManifestFromS3 generate and write manifest using the provided s3 session
-func GenerateAndWriteManifestFromS3(template Template, commandGenerator CommandGenerator, svc *s3.S3, listObjectInput *s3.ListObjectsInput, manifestInput *s3.PutObjectInput) error {
+func GenerateAndWriteManifestFromS3(input *Input) (*Manifest, error) {
 
-	manifest, err := GenerateManifestFromS3(template, commandGenerator, svc, listObjectInput)
+	manifest, err := GenerateManifestFromS3(input)
 
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	manifestBytes, err := json.Marshal(manifest)
 
 	if err != nil {
-		return fmt.Errorf("An unexpected error occurred while marshaling the manifest, %v", err)
+		return nil, fmt.Errorf("An unexpected error occurred while marshaling the manifest, %v", err)
 	}
 
-	manifestInput.Body = bytes.NewReader(manifestBytes)
-	manifestInput.ContentLength = aws.Int64(int64(len(manifestBytes)))
-	manifestInput.ContentType = aws.String(http.DetectContentType(manifestBytes))
+	input.ManifestDestination.Body = bytes.NewReader(manifestBytes)
+	input.ManifestDestination.ContentLength = aws.Int64(int64(len(manifestBytes)))
+	input.ManifestDestination.ContentType = aws.String(http.DetectContentType(manifestBytes))
 
-	_, err = svc.PutObject(manifestInput)
+	_, err = input.S3Session.PutObject(input.ManifestDestination)
 
 	if err != nil {
-		fmt.Printf("An unexpected error occurred while writing the manifest into S3: %v", err)
+		return nil, fmt.Errorf("An unexpected error occurred while writing the manifest into S3: %v", err)
+	}
+
+	return manifest, nil
+}
+
+//ExecuteCopyFromManifest triggers copyExecutor for the files in manifest and rename then with prefix "done"
+func ExecuteCopyFromManifest(copyExecutor CopyExecutor, input *Input) error {
+
+	manifest, err := GenerateAndWriteManifestFromS3(input)
+
+	if err != nil {
+		return err
+	}
+
+	if err = copyExecutor(input.ManifestDestination.Key); err != nil {
+		return err
+	}
+
+	bucket := *input.S3ObjectsInput.Bucket
+
+	for _, entry := range manifest.Entries {
+		fmt.Printf("Processing: %v", entry.Endpoint) //TODO
+
+		_, err = input.S3Session.CopyObject(&s3.CopyObjectInput{
+			Bucket:     input.S3ObjectsInput.Bucket,
+			CopySource: aws.String(fmt.Sprintf("/%s/%s", bucket, entry.Endpoint)),
+			Key:        aws.String(fmt.Sprintf("/%s/done/%s", bucket, entry.Endpoint)),
+		})
+
+		if err != nil {
+			return fmt.Errorf("Unable to copy file %v. Error: %v", entry.Endpoint, err)
+		}
+
 	}
 
 	return nil
