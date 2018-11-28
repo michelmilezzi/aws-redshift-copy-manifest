@@ -12,8 +12,8 @@ import (
 
 //Entry represents an entries of a redshift manifest file
 type Entry struct {
-	Endpoint  string `json:"endpoint"`
-	Command   string `json:"command"`
+	URL       string `json:"url"`
+	Command   string `json:"command,omitempty"`
 	Mandatory bool   `json:"mandatory,omitempty"`
 	PublicKey string `json:"publickey,omitempty"`
 	Username  string `json:"username,omitempty"`
@@ -66,7 +66,7 @@ func GenerateManifestFromS3(input *Input) (*Manifest, error) {
 		}
 
 		entry := Entry{
-			Endpoint:  *item.Key,
+			URL:       fmt.Sprintf("s3://%v/%v", *input.S3ObjectsInput.Bucket, *item.Key),
 			Command:   input.CommandGenerator(item),
 			Mandatory: input.Template.Mandatory,
 			PublicKey: input.Template.PublicKey,
@@ -127,21 +127,21 @@ func ExecuteCopyFromManifest(copyExecutor CopyExecutor, input *Input) error {
 
 		_, err = input.S3Session.CopyObject(&s3.CopyObjectInput{
 			Bucket:     aws.String(bucket),
-			CopySource: aws.String(fmt.Sprintf("/%s/%s", bucket, entry.Endpoint)),
-			Key:        aws.String(fmt.Sprintf("/done/%s", entry.Endpoint)),
+			CopySource: aws.String(fmt.Sprintf("/%s/%s", bucket, entry.URL)),
+			Key:        aws.String(fmt.Sprintf("/done/%s", entry.URL)),
 		})
 
 		if err != nil {
-			return fmt.Errorf("Unable to copy file %v. Error: %v", entry.Endpoint, err)
+			return fmt.Errorf("Unable to copy file %v. Error: %v", entry.URL, err)
 		}
 
 		_, err = input.S3Session.DeleteObject(&s3.DeleteObjectInput{
 			Bucket: aws.String(bucket),
-			Key:    aws.String(fmt.Sprintf("/%s", entry.Endpoint)),
+			Key:    aws.String(fmt.Sprintf("/%s", entry.URL)),
 		})
 
 		if err != nil {
-			return fmt.Errorf("Unable to delete file %v. Error: %v", entry.Endpoint, err)
+			return fmt.Errorf("Unable to delete file %v. Error: %v", entry.URL, err)
 		}
 
 	}
