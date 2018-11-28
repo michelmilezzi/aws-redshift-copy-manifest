@@ -4,6 +4,7 @@ This library is intended to provide a basic interaction between S3 and Redshift.
 
 You could generate a [Redshift Manifest file](https://docs.aws.amazon.com/redshift/latest/dg/load-from-host-steps-create-manifest.html) with the files you want for a later copy operation:
 
+```go
 	//building a basic aws s3 session
 	awsConfig := &aws.Config{Region: aws.String(endpoints.UsEast1RegionID)}
 
@@ -55,3 +56,4 @@ You could generate a [Redshift Manifest file](https://docs.aws.amazon.com/redshi
 		fmt.Printf("Unexpected error: %v", err)
 		os.Exit(1)
 	}	
+```
