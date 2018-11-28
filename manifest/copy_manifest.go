@@ -58,6 +58,13 @@ func GenerateManifestFromS3(input *Input) (*Manifest, error) {
 	var entries []Entry
 
 	for _, item := range resp.Contents {
+
+		//TODO is there a better way to check if it's a directory?
+		entryName := *item.Key
+		if entryName[len(entryName)-1:] == "/" {
+			continue
+		}
+
 		entry := Entry{
 			Endpoint:  *item.Key,
 			Command:   input.CommandGenerator(item),
@@ -117,16 +124,24 @@ func ExecuteCopyFromManifest(copyExecutor CopyExecutor, input *Input) error {
 	bucket := *input.S3ObjectsInput.Bucket
 
 	for _, entry := range manifest.Entries {
-		fmt.Printf("Processing: %v", entry.Endpoint) //TODO
 
 		_, err = input.S3Session.CopyObject(&s3.CopyObjectInput{
-			Bucket:     input.S3ObjectsInput.Bucket,
+			Bucket:     aws.String(bucket),
 			CopySource: aws.String(fmt.Sprintf("/%s/%s", bucket, entry.Endpoint)),
-			Key:        aws.String(fmt.Sprintf("/%s/done/%s", bucket, entry.Endpoint)),
+			Key:        aws.String(fmt.Sprintf("/done/%s", entry.Endpoint)),
 		})
 
 		if err != nil {
 			return fmt.Errorf("Unable to copy file %v. Error: %v", entry.Endpoint, err)
+		}
+
+		_, err = input.S3Session.DeleteObject(&s3.DeleteObjectInput{
+			Bucket: aws.String(bucket),
+			Key:    aws.String(fmt.Sprintf("/%s", entry.Endpoint)),
+		})
+
+		if err != nil {
+			return fmt.Errorf("Unable to delete file %v. Error: %v", entry.Endpoint, err)
 		}
 
 	}
