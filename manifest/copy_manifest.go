@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -49,11 +50,15 @@ type CopyExecutor func(manifestPath *string) error
 //GenerateManifestFromS3 generate manifest using the provided s3 session
 func GenerateManifestFromS3(input *Input) (*Manifest, error) {
 
+	log.Printf("Attempting to generate manifest from %v/%v \n", *input.S3ObjectsInput.Bucket, *input.S3ObjectsInput.Prefix)
+
 	resp, err := input.S3Session.ListObjects(input.S3ObjectsInput)
 
 	if err != nil {
-		return nil, fmt.Errorf("Unable to list items in bucket %q, %v", input.S3ObjectsInput.Bucket, err)
+		return nil, fmt.Errorf("Unable to list items in bucket %q, %v", *input.S3ObjectsInput.Bucket, err)
 	}
+
+	log.Printf("Found %v objects", len(resp.Contents))
 
 	var entries []Entry
 
@@ -67,11 +72,15 @@ func GenerateManifestFromS3(input *Input) (*Manifest, error) {
 
 		entry := Entry{
 			URL:       fmt.Sprintf("s3://%v/%v", *input.S3ObjectsInput.Bucket, *item.Key),
-			Command:   input.CommandGenerator(item),
 			Mandatory: input.Template.Mandatory,
 			PublicKey: input.Template.PublicKey,
 			Username:  input.Template.Username,
 		}
+
+		if input.CommandGenerator != nil {
+			entry.Command = input.CommandGenerator(item)
+		}
+
 		entries = append(entries, entry)
 
 	}
@@ -84,6 +93,8 @@ func GenerateManifestFromS3(input *Input) (*Manifest, error) {
 func GenerateAndWriteManifestFromS3(input *Input) (*Manifest, error) {
 
 	manifest, err := GenerateManifestFromS3(input)
+
+	log.Printf("Writing manifest to %v/%v \n", *input.ManifestDestination.Bucket, *input.ManifestDestination.Key)
 
 	if err != nil {
 		return nil, err
@@ -117,7 +128,11 @@ func ExecuteCopyFromManifest(copyExecutor CopyExecutor, input *Input) error {
 		return err
 	}
 
-	if err = copyExecutor(input.ManifestDestination.Key); err != nil {
+	manifestURI := fmt.Sprintf("s3://%s/%s", *input.ManifestDestination.Bucket, *input.ManifestDestination.Key)
+
+	log.Printf("Executing COPY statement for manifest %v \n", manifestURI)
+
+	if err = copyExecutor(&manifestURI); err != nil {
 		return err
 	}
 
