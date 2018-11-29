@@ -18,6 +18,7 @@ type Entry struct {
 	Mandatory bool   `json:"mandatory,omitempty"`
 	PublicKey string `json:"publickey,omitempty"`
 	Username  string `json:"username,omitempty"`
+	RawPath   string `json:"-"`
 }
 
 //Manifest represents a redshift manifest file
@@ -55,7 +56,7 @@ func GenerateManifestFromS3(input *Input) (*Manifest, error) {
 	resp, err := input.S3Session.ListObjects(input.S3ObjectsInput)
 
 	if err != nil {
-		return nil, fmt.Errorf("Unable to list items in bucket %q, %v", *input.S3ObjectsInput.Bucket, err)
+		return nil, fmt.Errorf("Unable to list items in bucket %q, %v", *input.S3ObjectsInput.Bucket, err.Error())
 	}
 
 	log.Printf("Found %v objects", len(resp.Contents))
@@ -75,6 +76,7 @@ func GenerateManifestFromS3(input *Input) (*Manifest, error) {
 			Mandatory: input.Template.Mandatory,
 			PublicKey: input.Template.PublicKey,
 			Username:  input.Template.Username,
+			RawPath:   *item.Key,
 		}
 
 		if input.CommandGenerator != nil {
@@ -94,11 +96,11 @@ func GenerateAndWriteManifestFromS3(input *Input) (*Manifest, error) {
 
 	manifest, err := GenerateManifestFromS3(input)
 
-	log.Printf("Writing manifest to %v/%v \n", *input.ManifestDestination.Bucket, *input.ManifestDestination.Key)
-
 	if err != nil {
 		return nil, err
 	}
+
+	log.Printf("Writing manifest to %v/%v \n", *input.ManifestDestination.Bucket, *input.ManifestDestination.Key)
 
 	manifestBytes, err := json.Marshal(manifest)
 
@@ -130,7 +132,7 @@ func ExecuteCopyFromManifest(copyExecutor CopyExecutor, input *Input) error {
 
 	manifestURI := fmt.Sprintf("s3://%s/%s", *input.ManifestDestination.Bucket, *input.ManifestDestination.Key)
 
-	log.Printf("Executing COPY statement for manifest %v \n", manifestURI)
+	log.Printf("Executing COPY statement for manifest: %v \n", manifestURI)
 
 	if err = copyExecutor(&manifestURI); err != nil {
 		return err
@@ -138,12 +140,14 @@ func ExecuteCopyFromManifest(copyExecutor CopyExecutor, input *Input) error {
 
 	bucket := *input.S3ObjectsInput.Bucket
 
+	log.Printf("Moving files")
+
 	for _, entry := range manifest.Entries {
 
 		_, err = input.S3Session.CopyObject(&s3.CopyObjectInput{
 			Bucket:     aws.String(bucket),
-			CopySource: aws.String(fmt.Sprintf("/%s/%s", bucket, entry.URL)),
-			Key:        aws.String(fmt.Sprintf("/done/%s", entry.URL)),
+			CopySource: aws.String(fmt.Sprintf("/%s/%s", bucket, entry.RawPath)),
+			Key:        aws.String(fmt.Sprintf("/done/%s", entry.RawPath)),
 		})
 
 		if err != nil {
