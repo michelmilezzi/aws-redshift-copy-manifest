@@ -156,7 +156,7 @@ func ExecuteCopyFromManifest(copyExecutor CopyExecutor, input *Input) error {
 
 		_, err = input.S3Session.DeleteObject(&s3.DeleteObjectInput{
 			Bucket: aws.String(bucket),
-			Key:    aws.String(fmt.Sprintf("/%s", entry.URL)),
+			Key:    aws.String(entry.RawPath),
 		})
 
 		if err != nil {
